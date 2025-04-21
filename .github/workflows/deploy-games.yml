@@ -36,7 +36,7 @@ jobs:
           mkdir -p "$SITE_DIR"
 
           # List of game directories. Add new game folders here to include them in the catalog.
-          GAMES=(figthers cubes)
+          GAMES=(fighters cubes)
 
           for GAME in "${GAMES[@]}"; do
             echo "\n👉 Building $GAME"
@@ -98,7 +98,7 @@ jobs:
             '  <body>' \
             '    <h1>Game Catalog</h1>' \
             '    <ul>' \
-            '      <li><a href="figthers/">Figthers</a></li>' \
+            '      <li><a href="fighters/">Fighters</a></li>' \
             '      <li><a href="cubes/">Cubes</a></li>' \
             '    </ul>' \
             '  </body>' \
