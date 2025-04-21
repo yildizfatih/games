@@ -2,7 +2,8 @@ import * as THREE from 'three';
 
 export function init() {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xffffff);
+  // Darker ambience for dungeon
+  scene.background = new THREE.Color(0x111111);
   const camera = new THREE.PerspectiveCamera(
     75,
     window.innerWidth / window.innerHeight,
@@ -236,6 +237,22 @@ export function init() {
   const girl = createGirlCharacter();
   girl.position.x = 3;
 
+  // ---- Simple Dungeon Environment ----
+  // Large inside‑out box to act as room
+  const roomGeo = new THREE.BoxGeometry(20, 10, 20);
+  const roomMat = new THREE.MeshStandardMaterial({ color: 0x222222, side: THREE.BackSide });
+  const dungeonRoom = new THREE.Mesh(roomGeo, roomMat);
+  scene.add(dungeonRoom);
+
+  // Floor plane with slightly lighter tone so characters aren't floating visually
+  const floorGeo = new THREE.PlaneGeometry(20, 20);
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = 0; // characters already at ground height
+  scene.add(floor);
+
+  // Add characters into the room
   scene.add(boy, girl);
 
   camera.position.set(0, 2, 6);
@@ -257,11 +274,18 @@ export function init() {
     attackTimer: number;
     attackLimb: THREE.Object3D | null;
     attackType: 'punch' | 'kick' | null;
+    isBlocking: boolean;
+    blockTimer: number; // seconds remaining of blocking state
+    forceActiveTimer: number;
+    forceCooldown: number;
+    forceMesh: THREE.Group | null;
+    shieldKey: string;
     controls: {
       left: string;
       right: string;
       punch: string;
       kick: string;
+      block: string;
     };
   }
 
@@ -273,7 +297,13 @@ export function init() {
     attackTimer: 0,
     attackLimb: boy.getObjectByName('rightArm') ?? null,
     attackType: null,
-    controls: { left: 'KeyA', right: 'KeyD', punch: 'KeyF', kick: 'KeyG' }
+    isBlocking: false,
+    blockTimer: 0,
+    forceActiveTimer: 0,
+    forceCooldown: 0,
+    forceMesh: null,
+    shieldKey: 'KeyG',
+    controls: { left: 'KeyA', right: 'KeyD', punch: 'KeyF', kick: 'KeyH', block: 'KeyR' }
   };
 
   const fighter2: Fighter = {
@@ -284,7 +314,13 @@ export function init() {
     attackTimer: 0,
     attackLimb: girl.getObjectByName('rightLeg') ?? null,
     attackType: null,
-    controls: { left: 'ArrowLeft', right: 'ArrowRight', punch: 'Slash', kick: 'KeyL' }
+    isBlocking: false,
+    blockTimer: 0,
+    forceActiveTimer: 0,
+    forceCooldown: 0,
+    forceMesh: null,
+    shieldKey: 'KeyZ',
+    controls: { left: 'ArrowLeft', right: 'ArrowRight', punch: 'Slash', kick: 'KeyL', block: 'KeyP' }
   };
 
   // Flip girl to face left
@@ -352,6 +388,10 @@ export function init() {
   }
   const projectiles: Projectile[] = [];
 
+  // Track previous shield key state
+  let gPressedPrev = false;
+  let zPressedPrev = false;
+
   function updateFighter(f: Fighter, opponent: Fighter, dt: number) {
     if (gameOver || f.health <= 0) return;
     // Face opponent
@@ -363,10 +403,22 @@ export function init() {
     if (keys[f.controls.left]) f.group.position.x -= speed * dt;
     if (keys[f.controls.right]) f.group.position.x += speed * dt;
 
-    // Determine attack type pressed
+    // ----- Blocking with grace period -----
+    const BLOCK_GRACE = 0.25; // seconds of extra blocking after key release
+
+    if (keys[f.controls.block]) {
+      f.blockTimer = BLOCK_GRACE; // reset timer while key held
+    } else if (f.blockTimer > 0) {
+      f.blockTimer -= dt;
+    }
+    f.isBlocking = f.blockTimer > 0;
+
+    // Disable attacking while blocking
     let requestedAttack: 'punch' | 'kick' | null = null;
-    if (keys[f.controls.punch]) requestedAttack = 'punch';
-    if (keys[f.controls.kick]) requestedAttack = 'kick';
+    if (!f.isBlocking) {
+      if (keys[f.controls.punch]) requestedAttack = 'punch';
+      if (keys[f.controls.kick]) requestedAttack = 'kick';
+    }
 
     if (!f.isAttacking && requestedAttack) {
       f.isAttacking = true;
@@ -405,7 +457,7 @@ export function init() {
       // Collision detection
       const fBox = new THREE.Box3().setFromObject(f.group);
       const oBox = new THREE.Box3().setFromObject(opponent.group);
-      if (fBox.intersectsBox(oBox)) {
+      if (fBox.intersectsBox(oBox) && !opponent.isBlocking && opponent.forceActiveTimer<=0) {
         opponent.health = Math.max(0, opponent.health - 10);
         updateHealthBars();
         f.isAttacking = false; // stop combo on hit
@@ -413,6 +465,23 @@ export function init() {
     } else {
       // reset limb rotation when not attacking
       if (f.attackLimb) (f.attackLimb as THREE.Mesh).rotation.x = 0;
+    }
+
+    // Blocking arm animation (cross arms)
+    const leftArm = f.group.getObjectByName('leftArm') as THREE.Mesh | null;
+    const rightArm = f.group.getObjectByName('rightArm') as THREE.Mesh | null;
+    if (f.isBlocking) {
+      if (leftArm) {
+        leftArm.rotation.z = Math.PI / 4;
+        leftArm.rotation.x = 0;
+      }
+      if (rightArm) {
+        rightArm.rotation.z = -Math.PI / 4;
+        rightArm.rotation.x = 0;
+      }
+    } else {
+      if (leftArm) leftArm.rotation.z = 0;
+      if (rightArm) rightArm.rotation.z = 0;
     }
   }
 
@@ -521,6 +590,13 @@ export function init() {
         uPressedPrev = uPressed;
       }
 
+      // Handle force fields
+      handleForceField(fighter1, 'KeyG', gPressedPrev, dt);
+      gPressedPrev = keys['KeyG'];
+
+      handleForceField(fighter2, 'KeyZ', zPressedPrev, dt);
+      zPressedPrev = keys['KeyZ'];
+
       // Update projectiles
       for (let i = projectiles.length - 1; i >= 0; i--) {
         const p = projectiles[i];
@@ -535,7 +611,9 @@ export function init() {
         const pBox = new THREE.Box3().setFromObject(p.mesh);
         const boyBox = new THREE.Box3().setFromObject(boy);
         if (p.owner === 'girl' && pBox.intersectsBox(boyBox)) {
-          fighter1.health = Math.max(0, fighter1.health - 10);
+          if (!fighter1.isBlocking && fighter1.forceActiveTimer<=0) {
+            fighter1.health = Math.max(0, fighter1.health - 10);
+          }
           updateHealthBars();
           if (fighter1.health === 0 && !gameOver) endGame('Girl wins!');
           scene.remove(p.mesh);
@@ -566,7 +644,9 @@ export function init() {
     }, 200);
 
     // Damage girl
-    fighter2.health = Math.max(0, fighter2.health - 10);
+    if (!fighter2.isBlocking && fighter2.forceActiveTimer<=0) {
+      fighter2.health = Math.max(0, fighter2.health - 10);
+    }
     updateHealthBars();
     if (fighter2.health === 0 && !gameOver) endGame('Boy wins!');
   }
@@ -616,4 +696,149 @@ export function init() {
     renderer.setSize(window.innerWidth, window.innerHeight);
   }
   window.addEventListener('resize', onWindowResize);
+
+  // ========= On‑screen controls guide =========
+  const guideBoy = document.createElement('div');
+  guideBoy.innerHTML = `
+    <strong>Boy&nbsp;Controls</strong><br/>
+    A / D – move<br/>
+    F – punch&nbsp;&nbsp;H – kick<br/>
+    R – block&nbsp;&nbsp;X – lightning<br/>
+    G – force‑field&nbsp;<small>(4 s&nbsp;· 60 s CD)</small>
+  `;
+  Object.assign(guideBoy.style, {
+    position: 'absolute',
+    bottom: '10px',
+    left: '10px',
+    background: 'rgba(0,0,0,0.6)',
+    color: '#fff',
+    padding: '8px 12px',
+    fontFamily: 'sans-serif',
+    fontSize: '14px',
+    lineHeight: '18px',
+    borderRadius: '4px',
+    textAlign: 'left',
+    zIndex: '9'
+  });
+
+  const guideGirl = document.createElement('div');
+  guideGirl.innerHTML = `
+    <strong>Girl&nbsp;Controls</strong><br/>
+    ← / → – move<br/>
+    / – punch&nbsp;&nbsp;L – kick<br/>
+    P – block&nbsp;&nbsp;U – fireball<br/>
+    Z – force‑field&nbsp;<small>(4 s&nbsp;· 60 s CD)</small>
+  `;
+  Object.assign(guideGirl.style, {
+    position: 'absolute',
+    bottom: '10px',
+    right: '10px',
+    background: 'rgba(0,0,0,0.6)',
+    color: '#fff',
+    padding: '8px 12px',
+    fontFamily: 'sans-serif',
+    fontSize: '14px',
+    lineHeight: '18px',
+    borderRadius: '4px',
+    textAlign: 'right',
+    zIndex: '9'
+  });
+
+  document.body.appendChild(guideBoy);
+  document.body.appendChild(guideGirl);
+
+  // ===== Force field helper =====
+  function handleForceField(f: Fighter, key: string, prevPressed: boolean, dt: number) {
+    const pressed = keys[key];
+    const FIELD_DURATION = 4; // seconds
+    const COOLDOWN = 60; // seconds (1 minute)
+
+    if (pressed && !prevPressed && f.forceCooldown<=0 && f.forceActiveTimer<=0) {
+      // activate field
+      f.forceActiveTimer = FIELD_DURATION;
+      f.forceCooldown = COOLDOWN;
+
+      // === Fancy shield multi‑layer effect ===
+      const shieldGroup = new THREE.Group();
+
+      // Choose base color per fighter (cyan for boy, magenta for girl)
+      const baseColor = f === fighter1 ? 0x00ffff : 0xff00ff;
+
+      // Inner glowing sphere
+      const innerGeom = new THREE.SphereGeometry(1.6, 32, 32);
+      const innerMat = new THREE.MeshBasicMaterial({
+        color: baseColor,
+        opacity: 0.25,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const innerSphere = new THREE.Mesh(innerGeom, innerMat);
+      shieldGroup.add(innerSphere);
+
+      // Outer wireframe sphere
+      const wireGeom = new THREE.SphereGeometry(1.7, 32, 32);
+      const wireMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        opacity: 0.4,
+        wireframe: true,
+        transparent: true,
+        depthWrite: false,
+      });
+      const wireSphere = new THREE.Mesh(wireGeom, wireMat);
+      shieldGroup.add(wireSphere);
+
+      // Rotating torus ring
+      const ringGeom = new THREE.TorusGeometry(1.6, 0.06, 16, 64);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: baseColor,
+        opacity: 0.5,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const ring = new THREE.Mesh(ringGeom, ringMat);
+      ring.rotation.x = Math.PI / 2;
+      shieldGroup.add(ring);
+
+      shieldGroup.position.set(0, 1.75, 0);
+      f.forceMesh = shieldGroup;
+      f.group.add(shieldGroup);
+    }
+
+    // timers
+    if (f.forceCooldown>0) f.forceCooldown -= dt;
+    if (f.forceActiveTimer>0) {
+      // Animate children rotations for extra flair
+      const elapsed = FIELD_DURATION - f.forceActiveTimer;
+      const pulse = 1 + 0.15 * Math.sin(elapsed * Math.PI * 4); // 2 pulses/sec
+      f.forceMesh?.scale.set(pulse, pulse, pulse);
+
+      if (f.forceMesh) {
+        f.forceMesh.rotation.y += dt * 1.5;
+        const wire = f.forceMesh.children[1];
+        wire.rotation.y -= dt * 2.5;
+        const ring = f.forceMesh.children[2];
+        ring.rotation.z += dt * 3;
+      }
+
+      // Optional flicker of inner sphere opacity
+      const innerMatDynamic = (f.forceMesh?.children[0] as THREE.Mesh)?.material as THREE.MeshBasicMaterial | undefined;
+      if (innerMatDynamic) innerMatDynamic.opacity = 0.18 + 0.07 * (Math.sin(elapsed * Math.PI * 6) + 1) / 2;
+
+      f.forceActiveTimer -= dt;
+      if (f.forceActiveTimer<=0 && f.forceMesh) {
+        // cleanup
+        f.group.remove(f.forceMesh);
+        f.forceMesh.traverse((obj)=>{
+          if ((obj as THREE.Mesh).isMesh) {
+            const m = obj as THREE.Mesh;
+            (m.geometry as THREE.BufferGeometry).dispose();
+            ((m.material) as THREE.Material).dispose();
+          }
+        });
+        f.forceMesh = null;
+      }
+    }
+  }
 } 
