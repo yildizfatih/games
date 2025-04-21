@@ -332,9 +332,10 @@ export function init() {
   window.addEventListener('keyup', (e) => (keys[e.code] = false));
 
   // Visual health bar (container with gradient fill)
-  function createHealthBar(anchor: 'left' | 'right'): { container: HTMLDivElement; fill: HTMLDivElement } {
+  function createHealthBar(anchor: 'left' | 'right'): { container: HTMLDivElement; fill: HTMLDivElement; label: HTMLDivElement } {
     const container = document.createElement('div');
     const fill = document.createElement('div');
+    const label = document.createElement('div');
 
     Object.assign(container.style, {
       position: 'absolute',
@@ -344,7 +345,15 @@ export function init() {
       height: '24px',
       border: '2px solid #000',
       background: '#555',
-      boxSizing: 'border-box'
+      boxSizing: 'border-box',
+      overflow: 'hidden',
+      fontFamily: 'sans-serif',
+      fontWeight: 'bold',
+      color: '#fff',
+      textShadow: '0 0 3px #000',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center'
     });
 
     Object.assign(fill.style, {
@@ -353,9 +362,20 @@ export function init() {
       background: 'linear-gradient(to right, #00ff00 0%, #ffff00 50%, #ff0000 100%)'
     });
 
+    Object.assign(label.style, {
+      position: 'absolute',
+      width: '100%',
+      textAlign: 'center',
+      pointerEvents: 'none',
+      fontSize: '14px',
+      lineHeight: '24px'
+    });
+    label.textContent = '100';
+
     container.appendChild(fill);
+    container.appendChild(label);
     document.body.appendChild(container);
-    return { container, fill };
+    return { container, fill, label };
   }
 
   const bar1 = createHealthBar('left');
@@ -364,6 +384,8 @@ export function init() {
   function updateHealthBars() {
     bar1.fill.style.width = `${fighter1.health * 2}px`;
     bar2.fill.style.width = `${fighter2.health * 2}px`;
+    bar1.label.textContent = `${fighter1.health}`;
+    bar2.label.textContent = `${fighter2.health}`;
   }
 
   const speed = 2.5; // movement units per second
@@ -461,6 +483,7 @@ export function init() {
         opponent.health = Math.max(0, opponent.health - 10);
         updateHealthBars();
         f.isAttacking = false; // stop combo on hit
+        playHitSound(opponent === fighter1);
       }
     } else {
       // reset limb rotation when not attacking
@@ -502,11 +525,12 @@ export function init() {
   document.body.appendChild(startBtn);
 
   startBtn.addEventListener('click', () => {
-    // Bow both fighters before enabling controls
     bowFighters(() => {
       gameStarted = true;
     });
     startBtn.remove();
+    // Play fun opening melody
+    playStartSong();
   });
 
   function bowFighters(callback: () => void) {
@@ -618,6 +642,7 @@ export function init() {
           if (fighter1.health === 0 && !gameOver) endGame('Girl wins!');
           scene.remove(p.mesh);
           projectiles.splice(i, 1);
+          playHitSound(true);
         }
       }
     }
@@ -649,6 +674,7 @@ export function init() {
     }
     updateHealthBars();
     if (fighter2.health === 0 && !gameOver) endGame('Boy wins!');
+    playHitSound(false);
   }
 
   function shootFireball() {
@@ -667,8 +693,10 @@ export function init() {
     projectiles.push({ mesh: sphere, velocity: dir.multiplyScalar(8), owner: 'girl', lifetime: 1.5 });
   }
 
+  // Show credits when game ends
   function endGame(message: string) {
     gameOver = true;
+    showCredits();
     const overlay = document.createElement('div');
     Object.assign(overlay.style, {
       position: 'absolute',
@@ -685,6 +713,8 @@ export function init() {
     overlay.appendChild(restart);
     document.body.appendChild(overlay);
     restart.addEventListener('click', () => location.reload());
+    // Play victory chime
+    playChime(3.5);
   }
 
   updateHealthBars();
@@ -840,5 +870,136 @@ export function init() {
         f.forceMesh = null;
       }
     }
+  }
+
+  // ================= Credits Button =================
+  // (Credits button removed; animation will play on start)
+
+  function showCredits() {
+    // Prevent multiple overlays
+    if (document.getElementById('credits-overlay')) return;
+
+    const ascii = [
+      '    ____  ______  ______  ___ _____      _________    __  ______________',
+      '   / __ \/ __ \ \\ \/ / __ \/   /__  /     / ____/   |  /  |/  / ____/ ___/',
+      '  / /_/ / / / /\  / /_/ / /| | / /     / / __/ /| | / /|_/ / __/  \\__ \\ ',
+      ' / ____/ /_/ / / / _, _/ ___ |/ /__   / /_/ / ___ |/ /  / / /___ ___/ / ',
+      '/_/    \____/ /_/_/ |_/_/  |_/____/   \____/_/  |_/_/  /_/_____//____/'
+    ];
+
+    const overlay = document.createElement('div');
+    overlay.id = 'credits-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      top: '0',
+      left: '0',
+      right: '0',
+      bottom: '0',
+      background: 'rgba(0,0,0,0.8)',
+      display: 'flex',
+      alignItems: 'flex-end',
+      justifyContent: 'center',
+      paddingBottom: '40px',
+      zIndex: '20',
+      overflow: 'hidden',
+      fontFamily: 'monospace',
+      whiteSpace: 'pre',
+      color: '#ffffff',
+    });
+
+    const artContainer = document.createElement('div');
+    overlay.appendChild(artContainer);
+
+    // Build spans with falling animation
+    ascii.forEach((line, rowIdx) => {
+      const lineDiv = document.createElement('div');
+      artContainer.appendChild(lineDiv);
+      [...line].forEach((ch, colIdx) => {
+        const span = document.createElement('span');
+        span.innerHTML = ch === ' ' ? '&nbsp;' : ch;
+        span.style.display = 'inline-block';
+        span.style.transform = 'translateY(-120vh)';
+        span.style.opacity = '0';
+        const delay = Math.random() * 1000 + (rowIdx * 80);
+        span.style.transition = `transform 0.9s ease-out ${delay}ms, opacity 0.9s ease-out ${delay}ms`;
+        lineDiv.appendChild(span);
+
+        // trigger fall after frame
+        requestAnimationFrame(() => {
+          span.style.transform = 'translateY(0)';
+          span.style.opacity = '1';
+        });
+      });
+    });
+
+    // Close on click
+    overlay.addEventListener('click', () => overlay.remove());
+    document.body.appendChild(overlay);
+  }
+
+  // ===== Simple audio helper =====
+  function playChime(duration = 3) {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = 880; // A5
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      gain.gain.setValueAtTime(0.4, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      osc.stop(ctx.currentTime + duration);
+      osc.onended = () => ctx.close();
+    } catch (e) {
+      console.warn('AudioContext error', e);
+    }
+  }
+
+  function playHitSound(isBoy: boolean) {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = isBoy ? 620 : 480; // different pitch per character
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      gain.gain.setValueAtTime(0.6, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+      osc.stop(ctx.currentTime + 0.25);
+      osc.onended = () => ctx.close();
+    } catch {}
+  }
+
+  // ===== Start‑game melody =====
+  function playStartSong() {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const notes = [523.25, 659.25, 783.99, 1046.5, 783.99, 659.25, 523.25, 392]; // C‑E‑G‑C6 arpeggio then finish on G4
+      const beat = 0.35; // seconds per note
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+      gain.gain.value = 0.4;
+
+      notes.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        osc.connect(gain);
+        const t = ctx.currentTime + i * beat;
+        osc.start(t);
+        osc.stop(t + beat);
+      });
+
+      // fade out at end
+      gain.gain.setValueAtTime(0.4, ctx.currentTime + notes.length * beat);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + notes.length * beat + 0.5);
+
+      // clean up context ~5s later
+      setTimeout(() => ctx.close(), (notes.length * beat + 1) * 1000);
+    } catch {}
   }
 } 
