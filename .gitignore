@@ -1,0 +1,32 @@
+# Node modules
+node_modules/
+
+# Build outputs
+# Vite / React / general front‑end
+/dist/
+/build/
+/site/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / Editor junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Environment files
+.env
+.env.*
+
+# GitHub workflow artifacts
+*.sarif
+
+# Local coverage
+coverage/
+
+# Typescript cache
+*.tsbuildinfo 
