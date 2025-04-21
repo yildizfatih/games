@@ -1,0 +1,115 @@
+name: Deploy Games Catalog
+
+on:
+  push:
+    branches: [main]
+  # Allow running this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Grant the actions the permissions required to deploy to GitHub Pages
+permissions:
+  contents: read  # to checkout the repository
+  pages: write    # to deploy to GitHub Pages
+  id-token: write # to verify the deployment provenance
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+
+      - name: Build games and prepare site directory
+        run: |
+          set -e
+          SITE_DIR=site
+          rm -rf "$SITE_DIR"
+          mkdir -p "$SITE_DIR"
+
+          # List of game directories. Add new game folders here to include them in the catalog.
+          GAMES=(figthers cubes)
+
+          for GAME in "${GAMES[@]}"; do
+            echo "\n👉 Building $GAME"
+            pushd "$GAME" >/dev/null
+            npm ci
+            npm run build
+            popd >/dev/null
+
+            # Determine build output directory (dist or build)
+            if [ -d "$GAME/dist" ]; then
+              OUT_DIR="$GAME/dist"
+            elif [ -d "$GAME/build" ]; then
+              OUT_DIR="$GAME/build"
+            else
+              echo "❌ Could not find build output directory for $GAME" >&2
+              exit 1
+            fi
+
+            # Copy built artefacts under a folder named after the game in the site directory
+            mkdir -p "$SITE_DIR/$GAME"
+            cp -r "$OUT_DIR"/* "$SITE_DIR/$GAME/"
+          done
+
+          # Generate catalog index page
+          printf '%s\n' \
+            '<!DOCTYPE html>' \
+            '<html lang="en">' \
+            '  <head>' \
+            '    <meta charset="UTF-8" />' \
+            '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />' \
+            '    <title>Game Catalog</title>' \
+            '    <style>' \
+            '      body {' \
+            '        font-family: Arial, Helvetica, sans-serif;' \
+            '        margin: 0 auto;' \
+            '        max-width: 40rem;' \
+            '        padding: 2rem 1rem;' \
+            '      }' \
+            '      h1 {' \
+            '        text-align: center;' \
+            '      }' \
+            '      ul {' \
+            '        list-style: none;' \
+            '        padding: 0;' \
+            '      }' \
+            '      li {' \
+            '        margin: 1rem 0;' \
+            '        font-size: 1.25rem;' \
+            '      }' \
+            '      a {' \
+            '        color: #0366d6;' \
+            '        text-decoration: none;' \
+            '      }' \
+            '      a:hover {' \
+            '        text-decoration: underline;' \
+            '      }' \
+            '    </style>' \
+            '  </head>' \
+            '  <body>' \
+            '    <h1>Game Catalog</h1>' \
+            '    <ul>' \
+            '      <li><a href="figthers/">Figthers</a></li>' \
+            '      <li><a href="cubes/">Cubes</a></li>' \
+            '    </ul>' \
+            '  </body>' \
+            '</html>' \
+          > "$SITE_DIR/index.html"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2 
