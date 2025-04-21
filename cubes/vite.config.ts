@@ -12,4 +12,5 @@ export default defineConfig({
     outDir: 'build',
     emptyOutDir: true,
   },
+  base: '/games/cubes/',
 }); 
