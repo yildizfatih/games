@@ -713,8 +713,8 @@ export function init() {
     overlay.appendChild(restart);
     document.body.appendChild(overlay);
     restart.addEventListener('click', () => location.reload());
-    // Play victory chime
-    playChime(3.5);
+    // Play Turkish‑march‑style melody
+    playVictorySong();
   }
 
   updateHealthBars();
@@ -734,7 +734,7 @@ export function init() {
     A / D – move<br/>
     F – punch&nbsp;&nbsp;H – kick<br/>
     R – block&nbsp;&nbsp;X – lightning<br/>
-    G – force‑field&nbsp;<small>(4 s&nbsp;· 60 s CD)</small>
+    G – force‑field&nbsp;<small>(4 s • 60 s CD)</small>
   `;
   Object.assign(guideBoy.style, {
     position: 'absolute',
@@ -757,7 +757,7 @@ export function init() {
     ← / → – move<br/>
     / – punch&nbsp;&nbsp;L – kick<br/>
     P – block&nbsp;&nbsp;U – fireball<br/>
-    Z – force‑field&nbsp;<small>(4 s&nbsp;· 60 s CD)</small>
+    Z – force‑field&nbsp;<small>(4 s • 60 s CD)</small>
   `;
   Object.assign(guideGirl.style, {
     position: 'absolute',
@@ -978,8 +978,14 @@ export function init() {
   function playStartSong() {
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const notes = [523.25, 659.25, 783.99, 1046.5, 783.99, 659.25, 523.25, 392]; // C‑E‑G‑C6 arpeggio then finish on G4
-      const beat = 0.35; // seconds per note
+      // Eine Kleine Nachtmusik opening (approx.)
+      const notes: number[] = [
+        659.25, 783.99, 987.77, 1046.5, // E5 G5 B5 C6
+        987.77, 783.99, 659.25, 523.25, // B5 G5 E5 C5
+        659.25, 523.25, 659.25, 783.99, // E5 C5 E5 G5
+        659.25, 523.25, 659.25, 783.99, // E5 C5 E5 G5 (repeat motif)
+      ];
+      const beat = 0.3; // 0.3 * 20 ≈ 6s including fade
       const gain = ctx.createGain();
       gain.connect(ctx.destination);
       gain.gain.value = 0.4;
@@ -991,15 +997,49 @@ export function init() {
         osc.connect(gain);
         const t = ctx.currentTime + i * beat;
         osc.start(t);
-        osc.stop(t + beat);
+        osc.stop(t + beat * 0.9);
       });
 
-      // fade out at end
-      gain.gain.setValueAtTime(0.4, ctx.currentTime + notes.length * beat);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + notes.length * beat + 0.5);
+      const total = notes.length * beat;
+      gain.gain.setValueAtTime(0.4, ctx.currentTime + total);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + total + 0.5);
+      setTimeout(() => ctx.close(), (total + 1) * 1000);
+    } catch {}
+  }
 
-      // clean up context ~5s later
-      setTimeout(() => ctx.close(), (notes.length * beat + 1) * 1000);
+  // ===== Victory melody (Turkish March snippet) =====
+  function playVictorySong() {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const gain = ctx.createGain();
+      gain.gain.value = 0.5;
+      gain.connect(ctx.destination);
+
+      // Extended phrase (~4s)
+      const notes: number[] = [
+        659.25, 622.25, 659.25, 622.25, 659.25, // E6 D#6 E6 D#6 E6
+        493.88, 587.33, 523.25,                 // B5 D6 C6
+        440, 0,                                 // A5 (rest)
+        261.63, 329.63, 440, 493.88,            // C5 E5 A5 B5
+        329.63, 392, 523.25                     // E5 G5 C6
+      ];
+      const beat = 0.22;
+
+      notes.forEach((freq, i) => {
+        if (freq === 0) return; // rest
+        const osc = ctx.createOscillator();
+        osc.type = 'square';
+        osc.frequency.value = freq;
+        osc.connect(gain);
+        const t = ctx.currentTime + i * beat;
+        osc.start(t);
+        osc.stop(t + beat * 0.9);
+      });
+
+      const total = notes.length * beat;
+      gain.gain.setValueAtTime(0.5, ctx.currentTime + total);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + total + 0.6);
+      setTimeout(()=>ctx.close(), (total + 1) * 1000);
     } catch {}
   }
 } 
